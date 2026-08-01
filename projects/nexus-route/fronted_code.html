@@ -685,14 +685,26 @@ async function signX402PaymentTransaction(challengeDetails) {
 
   // Send signed transaction payload back to payment_gate.py for verification
   try {
+    const payHeaders = {
+      'Content-Type': 'application/json',
+      'X-PAYMENT': paymentHeader,
+      'Authorization': `x402 ${paymentHeader}`
+    };
+    if (connectedAccount) {
+      payHeaders['X-Pera-Address'] = connectedAccount;
+      payHeaders['X-Sender-Address'] = connectedAccount;
+    }
     const payRes = await fetch(PAY_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-PAYMENT': paymentHeader,
-        'Authorization': `x402 ${paymentHeader}`
-      },
-      body: JSON.stringify(x402Payload)
+      headers: payHeaders,
+      body: JSON.stringify({
+        ...x402Payload,
+        sender: connectedAccount || undefined,
+        senderAddress: connectedAccount || undefined,
+        peraAddress: connectedAccount || undefined,
+        connectedAccount: connectedAccount || undefined,
+        agentId: connectedAccount || undefined
+      })
     });
     
     if (payRes.ok) {
@@ -859,7 +871,7 @@ async function simulateRoute(requestText, optimize){
     providers_evaluated,
     payments: {
       group_id: fakeAlgorandTx(),
-      agent_to_router: { tx: fakeAlgorandTx(), amount: '0.001 ALGO', raw: 0.001 },
+      agent_to_router: { tx: fakeAlgorandTx(), amount: '0.001 ALGO', raw: 0.001, from: connectedAccount || "agent_123" },
       router_to_provider: { tx: fakeAlgorandTx(), amount: `${winner.rawPrice.toFixed(4)} ALGO`, raw: winner.rawPrice },
     }
   };
@@ -867,9 +879,24 @@ async function simulateRoute(requestText, optimize){
 
 async function fetchRoute(requestText, optimize){
   try{
+    const reqHeaders = { 'Content-Type': 'application/json' };
+    if (connectedAccount) {
+      reqHeaders['X-Pera-Address'] = connectedAccount;
+      reqHeaders['X-Sender-Address'] = connectedAccount;
+    }
     const res = await fetch(ROUTER_URL, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ request: requestText, optimize, offline: [...manualOffline] })
+      method: 'POST',
+      headers: reqHeaders,
+      body: JSON.stringify({
+        request: requestText,
+        optimize,
+        offline: [...manualOffline],
+        agentId: connectedAccount || "agent_123",
+        sender: connectedAccount || undefined,
+        senderAddress: connectedAccount || undefined,
+        peraAddress: connectedAccount || undefined,
+        connectedAccount: connectedAccount || undefined
+      })
     });
     if(!res.ok) throw new Error('router error');
     return await res.json();
@@ -904,9 +931,10 @@ function addAtomicLedgerGroup(groupID, tx1, tx2){
   groupHeader.className = 'group-header';
   groupHeader.textContent = `Atomic Group: ${gId.slice(0,16)}...`;
   
+  const senderLabel = t1.from ? (t1.from.length > 12 ? t1.from.slice(0, 4) + '...' + t1.from.slice(-4) : t1.from) : (connectedAccount ? connectedAccount.slice(0, 4) + '...' + connectedAccount.slice(-4) : 'Agent');
   const line1 = document.createElement('div');
   line1.className = 'ledger-line';
-  line1.innerHTML = `<span class="ts">${now}</span><span class="desc">Agent → Router (Network Fee)</span><span class="amt">${t1.amount || '0.001 ALGO'}</span><span class="tx">TXID: ${formatTx(t1.tx)}</span>`;
+  line1.innerHTML = `<span class="ts">${now}</span><span class="desc">${senderLabel} → Router (Network Fee)</span><span class="amt">${t1.amount || '0.001 ALGO'}</span><span class="tx">TXID: ${formatTx(t1.tx)}</span>`;
   
   const line2 = document.createElement('div');
   line2.className = 'ledger-line';
