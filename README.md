@@ -40,6 +40,19 @@ projects/nexus-route/
 > **Note on Demo Account Configuration**: For TestNet faucet constraints, the demo uses a single funded Algorand TestNet account (`ROUTER_MNEMONIC`) to sign and settle payments on-chain.
 
 ---
+## 🛠️ Tech Stack & System Architecture
+
+### ⚡ Blockchain & Payments
+* **Algorand TestNet:** High-speed settlement layer leveraging **Atomic Group Transfers** for zero-trust payments and automated escrow rollbacks.
+* **x402 Protocol:** The standard for machine-to-machine micro-payments, intercepting requests with `HTTP 402 Payment Required` challenges.
+
+### 🧠 Backend & Infrastructure
+* **Python 3.12 (FastAPI):** Core API gateway that parses and verifies x402 cryptographic transaction proofs.
+* **Node.js (Express):** Routing middleware managing real-time node bidding matrices and provider reputation scoring.
+
+### 🔌 Client & Deployment
+* **Pera Wallet SDK:** Non-custodial authentication enabling seamless web/mobile wallet connections.
+* **Docker + Render:** Containerized runtime environment ensuring native C-library cryptographic compatibility in production.
 
 ## ⚙️ Environment Configuration
 
