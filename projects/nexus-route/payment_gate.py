@@ -19,6 +19,10 @@ from fastapi.responses import JSONResponse
 from fastapi.exception_handlers import http_exception_handler
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from algosdk import mnemonic, account
+from algosdk.v2client import algod
+from algosdk.transaction import PaymentTxn, wait_for_confirmation
+
 # ---------------------------------------------------------------------------
 # Load environment variables from .env
 # Strategy: look for .env two directories up (workspace root), then fall back
@@ -39,12 +43,30 @@ else:
         load_dotenv()  # last-resort default search
         print("[dotenv] Using default .env search (no explicit path found)")
 
+# ---------------------------------------------------------------------------
+# Read and validate required environment variables
+# Note: AVM_ADDRESS, ROUTER_MNEMONIC, and FACILITATOR_URL must be set manually in
+# Render's dashboard Environment tab (not in render.yaml).
+# For this demo, AVM_ADDRESS and the address derived from ROUTER_MNEMONIC may
+# intentionally be the SAME account due to TestNet faucet constraints — this is
+# expected and fine.
+# ---------------------------------------------------------------------------
 DEFAULT_AVM_ADDRESS = "O7N4OJSAHPSREE57UJFOQWAKYMEKAWDU72HHFKH4M7REAQM4Z37XKPDOGE"
 AVM_ADDRESS: str = os.getenv("AVM_ADDRESS", "").strip() or DEFAULT_AVM_ADDRESS
 FACILITATOR_URL: str = os.getenv("FACILITATOR_URL", "https://x402.org/facilitator").strip()
 APP_ID: int = int(os.getenv("APP_ID", "768380572"))
 
+ROUTER_MNEMONIC: str = os.getenv("ROUTER_MNEMONIC", "").strip()
+if not ROUTER_MNEMONIC:
+    raise EnvironmentError("ROUTER_MNEMONIC is not set. Set it in Render's Environment tab.")
+ROUTER_PRIVATE_KEY = mnemonic.to_private_key(ROUTER_MNEMONIC)
+ROUTER_ADDRESS = account.address_from_private_key(ROUTER_PRIVATE_KEY)
+
+ALGOD_SERVER: str = os.getenv("ALGOD_SERVER", "https://testnet-api.algonode.cloud").strip()
+algod_client = algod.AlgodClient("", ALGOD_SERVER)
+
 print(f"[config] AVM_ADDRESS    = {AVM_ADDRESS}")
+print(f"[config] ROUTER_ADDRESS = {ROUTER_ADDRESS}")
 print(f"[config] FACILITATOR_URL = {FACILITATOR_URL}")
 print(f"[config] APP_ID          = {APP_ID}")
 
@@ -99,15 +121,13 @@ class DemoFacilitatorClient(HTTPFacilitatorClient):
             tx_id = p_dict.get("tx") or p_dict.get("txId") or p_dict.get("transactionId") or ""
             if p_dict.get("payer"):
                 payer_addr = p_dict.get("payer")
-        if tx_id.startswith("mock-") or tx_id.startswith("ALG-") or not tx_id or len(tx_id) > 10:
+        if tx_id.startswith("mock-"):
             return VerifyResponse(is_valid=True, payer=payer_addr)
-        try:
-            res = await super().verify(payload, requirements)
-            if payload and getattr(payload, "payload", None) and isinstance(payload.payload, dict) and payload.payload.get("payer"):
-                res.payer = payload.payload.get("payer")
-            return res
-        except Exception:
-            return VerifyResponse(is_valid=True, payer=payer_addr)
+        
+        res = await super().verify(payload, requirements)
+        if payload and getattr(payload, "payload", None) and isinstance(payload.payload, dict) and payload.payload.get("payer"):
+            res.payer = payload.payload.get("payer")
+        return res
 
     async def settle(
         self,
@@ -121,25 +141,18 @@ class DemoFacilitatorClient(HTTPFacilitatorClient):
             tx_id = p_dict.get("tx") or p_dict.get("txId") or p_dict.get("transactionId") or "mock-tx"
             if p_dict.get("payer"):
                 payer_addr = p_dict.get("payer")
-        if tx_id.startswith("mock-") or tx_id.startswith("ALG-") or not tx_id or len(tx_id) > 10:
+        if tx_id.startswith("mock-"):
             return SettleResponse(
                 success=True,
                 transaction=tx_id,
                 network=requirements.network,
                 payer=payer_addr
             )
-        try:
-            res = await super().settle(payload, requirements)
-            if payload and getattr(payload, "payload", None) and isinstance(payload.payload, dict) and payload.payload.get("payer"):
-                res.payer = payload.payload.get("payer")
-            return res
-        except Exception:
-            return SettleResponse(
-                success=True,
-                transaction=tx_id,
-                network=requirements.network,
-                payer=payer_addr
-            )
+        
+        res = await super().settle(payload, requirements)
+        if payload and getattr(payload, "payload", None) and isinstance(payload.payload, dict) and payload.payload.get("payer"):
+            res.payer = payload.payload.get("payer")
+        return res
 
 def extract_sender_address(request: Request, body_data: Optional[dict] = None) -> str:
     # 1. Check HTTP Headers (X-Pera-Address, X-Sender-Address)
@@ -377,20 +390,31 @@ def score_providers(providers, mode):
     return result
 
 async def pay_provider(from_address: str, to_address: str, amount):
-    await asyncio.sleep(0.3)
-    tx_hash = "0x" + "".join(random.choices("0123456789abcdef", k=8)) + "..." + "".join(random.choices("0123456789abcdef", k=4))
-    if isinstance(amount, (int, float)):
-        formatted_amount = f"${amount:.3f}"
-    else:
-        formatted_amount = str(amount) if str(amount).startswith("$") else f"${amount}"
+    if isinstance(amount, str):
+        amount = float(amount.replace("$", ""))
+    micro_amount = max(int(amount * 1_000_000), 1000)  # min 1000 microAlgos
 
-    return {
-        "success": True,
-        "tx": tx_hash,
-        "amount": formatted_amount,
-        "status": "confirmed",
-        "timestamp": int(time.time() * 1000)
-    }
+    # Since agent and router currently share one funded account for this
+    # demo, send payments back to ROUTER_ADDRESS itself as the receiver
+    # in all cases — this still produces a real, verifiable on-chain
+    # transaction even though sender and receiver may coincide.
+    recipient = ROUTER_ADDRESS
+
+    try:
+        params = algod_client.suggested_params()
+        txn = PaymentTxn(sender=ROUTER_ADDRESS, sp=params, receiver=recipient, amt=micro_amount)
+        signed_txn = txn.sign(ROUTER_PRIVATE_KEY)
+        tx_id = algod_client.send_transaction(signed_txn)
+        wait_for_confirmation(algod_client, tx_id, 4)
+        return {
+            "success": True, "tx": tx_id, "amount": f"${amount:.3f}",
+            "status": "confirmed", "timestamp": int(time.time() * 1000)
+        }
+    except Exception as e:
+        return {
+            "success": False, "tx": None, "amount": f"${amount:.3f}",
+            "status": "failed", "error": str(e), "timestamp": int(time.time() * 1000)
+        }
 
 # ---------------------------------------------------------------------------
 # Global exception handler — surfaces real errors instead of silent 500s
@@ -661,6 +685,16 @@ async def route_endpoint(req_body: RouteRequest, request: Request):
                     
                     agent_to_router_tx = await pay_provider(sender_address, recipient_address or "nexroute_router", candidate["basePrice"])
                     router_to_provider_tx = await pay_provider(recipient_address or "nexroute_router", candidate["id"], candidate["basePrice"])
+                    
+                    if not agent_to_router_tx["success"] or not router_to_provider_tx["success"]:
+                        return JSONResponse(
+                            status_code=502,
+                            content={
+                                "status": "error",
+                                "message": "Payment settlement failed",
+                                "detail": agent_to_router_tx.get("error") or router_to_provider_tx.get("error")
+                            }
+                        )
                     
                     print(f"[NexRoute] PAYMENT SETTLED:")
                     print(f"  Agent -> Router : {agent_to_router_tx['tx']} ({agent_to_router_tx['amount']}) [{agent_to_router_tx['status']}]")

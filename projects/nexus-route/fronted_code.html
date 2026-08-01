@@ -373,7 +373,7 @@
           <option value="fastest">optimize: fastest</option>
           <option value="balanced" selected>optimize: balanced</option>
         </select>
-        <button class="primary" id="sendBtn">Route Request →</button>
+        <button class="primary" id="sendBtn">⚡ Live Algorand Settlement (Real TestNet Tx)</button>
       </div>
     </div>
 
@@ -414,6 +414,7 @@
     </div>
 
     <!-- Provider Nodes Grid -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;"><div style="font-family:var(--mono); font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px;">AI Provider Nodes <span style="color:var(--amber); font-size:10px; font-weight:normal; text-transform:none; margin-left:6px;">(Provider Selection Simulated)</span></div></div>
     <div class="providers" id="providers"></div>
 
     <!-- Dual Panel: Settlement Ledger & Cryptographic Inspector -->
@@ -421,7 +422,7 @@
       <!-- Panel 1: Settlement Ledger -->
       <div class="ledger-card">
         <div class="ledger-head">
-          <span class="ledger-title">ALGORAND ATOMIC LEDGER</span>
+          <span class="ledger-title">ALGORAND ATOMIC LEDGER <span style="color:var(--amber); font-size:10px;">(LIVE ALGORAND SETTLEMENT — Provider Selection Simulated)</span></span>
           <span style="font-family:var(--mono); font-size:11px; color:var(--muted);" id="ledgerCount">0 txs</span>
         </div>
         <div class="ledger-body" id="ledgerBody">
@@ -526,7 +527,7 @@ setInterval(() => {
 // ==============================================================
 // CONFIGURATION & GLOBAL STATE
 // ==============================================================
-const ROUTER_URL = 'http://localhost:8000/route';
+const ROUTER_URL = '/route';
 const PAY_URL = '/pay';
 const manualOffline = new Set();
 let currentBalance = 15.0000;
@@ -632,12 +633,15 @@ async function signX402PaymentTransaction(challengeDetails) {
     try {
       let txn;
       if (window.algosdk) {
+        const paramsRes = await fetch('https://testnet-api.algonode.cloud/v2/transactions/params');
+        const paramsData = await paramsRes.json();
         const params = {
-          fee: 1000,
-          firstRound: 42918204,
-          lastRound: 42919204,
-          genesisID: 'testnet-v1.0',
-          genesisHash: 'SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=',
+          fee: paramsData['min-fee'] || 1000,
+          firstRound: paramsData['last-round'] + 1,
+          lastRound: paramsData['last-round'] + 1000,
+          genesisID: paramsData['genesis-id'],
+          genesisHash: paramsData['genesis-hash'],
+          flatFee: true,
         };
         txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
           from: connectedAccount,
@@ -1136,7 +1140,7 @@ async function runFlow(){
     document.getElementById('payloadStatus').style.color = 'var(--amber)';
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Route Request →';
+    btn.textContent = '⚡ Live Algorand Settlement (Real TestNet Tx)';
     document.querySelectorAll('.flow-step').forEach(s => s.classList.remove('active'));
   }
 }
