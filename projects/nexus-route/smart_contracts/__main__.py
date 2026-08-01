@@ -20,11 +20,15 @@ logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s %(levelname)-10s: %(message)s"
 )
 logger = logging.getLogger(__name__)
-logger.info("Loading .env")
-load_dotenv()
-
 # Determine the root path based on this file's location.
 root_path = Path(__file__).parent
+
+logger.info("Loading .env")
+load_dotenv()
+testnet_env = root_path.parent / ".env.testnet"
+if testnet_env.exists():
+    logger.info(f"Loading {testnet_env}")
+    load_dotenv(dotenv_path=testnet_env, override=True)
 
 # ----------------------- Contract Configuration ----------------------- #
 
@@ -93,19 +97,17 @@ def build(output_dir: Path, contract_path: Path) -> Path:
     """
     output_dir = output_dir.resolve()
     if output_dir.exists():
-        rmtree(output_dir)
+        rmtree(output_dir, ignore_errors=True)
     output_dir.mkdir(exist_ok=True, parents=True)
     logger.info(f"Exporting {contract_path} to {output_dir}")
 
     build_result = subprocess.run(
         [
-            "algokit",
-            "--no-color",
-            "compile",
-            "python",
+            sys.executable,
+            "-m",
+            "puyapy",
             str(contract_path.resolve()),
             f"--out-dir={output_dir}",
-            "--output-source-map",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

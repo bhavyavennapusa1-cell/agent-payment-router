@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: nexus-route
+    env: python
+    buildCommand: pip install -r requirements.txt || poetry install
+    startCommand: uvicorn payment_gate:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: APP_ID
+        value: "768380572"
+      - key: ALGOD_SERVER
+        value: "https://testnet-api.algonode.cloud"
+      - key: INDEXER_SERVER
+        value: "https://testnet-idx.algonode.cloud"

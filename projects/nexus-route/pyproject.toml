@@ -12,6 +12,9 @@ algokit-utils = "^4.0.0"
 python-dotenv = "^1.0.0"
 algorand-python = "^3"
 algorand-python-testing = "^1"
+fastapi = "^0.141.0"
+uvicorn = "^0.52.0"
+x402-avm = "^2.0.0"
 
 [tool.poetry.group.dev.dependencies]
 algokit-client-generator = "^2.1.0"

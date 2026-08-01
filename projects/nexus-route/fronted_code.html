@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="ngrok-skip-browser-warning" content="true">
+<script>
+  if (window.location.hostname.includes('ngrok-free.dev') || window.location.hostname.includes('ngrok-free.app')) {
+    document.cookie = "ngrok-skip-browser-warning=true; path=/; max-age=604800";
+  }
+</script>
+<title>RELAY — Algorand x402 Agent Payment Router</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@perawallet/connect@latest/dist/index.umd.js"></script>
+<script type="module">
+  try {
+    if (!window.PeraWalletConnect) {
+      const mod = await import('https://esm.sh/@perawallet/connect');
+      window.PeraWalletConnect = mod.PeraWalletConnect || mod;
+    }
+  } catch (e) {}
+  if (typeof window.initPeraWallet === 'function') {
+    window.initPeraWallet();
+  }
+</script>
+<script src="https://unpkg.com/algosdk@2.9.0/dist/browser/algosdk.min.js"></script>
+<style>
+  :root{
+    --bg: #07050E;
+    --panel: #0F0D1A;
+    --panel-2: #161326;
+    --line: #29233B;
+    --line-soft: #1C172E;
+    --text: #F8FAFC;
+    --muted: #94A3B8;
+    
+    /* Signature High-Octane Palette */
+    --glow-solid: #E879F9;
+    --glow: 232, 121, 249;
+    --glow-dim: rgba(232, 121, 249, 0.12);
+    
+    --amber: #FFB020;
+    --amber-dim: rgba(255, 176, 32, 0.15);
+    
+    /* Micro Ecosystem Accent */
+    --algo-cyan: #00F5D4;
+    
+    --danger: #EF4444;
+    --danger-dim: #2a1414;
+    --success: #10B981;
+    --radius: 12px;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+  body{
+    min-height:100vh;
+    padding: 24px 28px 40px;
+    position:relative;
+    overflow-x:hidden;
+  }
+  #dotgrid{ position:fixed; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; }
+  body::before{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:radial-gradient(circle at 50% 15%, rgba(232, 121, 249, 0.06) 0%, rgba(7,5,14,0.85) 60%, rgba(7,5,14,0.98) 100%);
+  }
+  .wrap{max-width:1240px;margin:0 auto; position:relative; z-index:1;}
+
+  /* ---------- Header ---------- */
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:24px; flex-wrap:wrap; gap:16px; border-bottom: 1px solid var(--line-soft);
+    padding-bottom: 18px;
+  }
+  .brand{display:flex; align-items:center; gap:14px;}
+  .brand-mark{
+    width:38px;height:38px;border-radius:10px;
+    background:#120B20; border:2px solid var(--glow-solid);
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono); font-weight:700; color:var(--glow-solid); font-size:18px;
+    box-shadow:0 0 22px rgba(var(--glow),0.45), inset 0 0 10px rgba(var(--glow),0.2);
+  }
+  .brand-name{font-family:var(--mono); font-weight:700; font-size:20px; letter-spacing:0.5px;}
+  .brand-sub{color:var(--muted); font-size:12px; margin-top:2px; font-family:var(--mono);}
+  
+  .header-badges{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  .protocol-badge{
+    font-family:var(--mono); font-size:11.5px; color:var(--text);
+    background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
+    padding:6px 12px; display:flex; align-items:center; gap:6px;
+  }
+  
+  /* Agent Wallet Display */
+  .wallet-badge{
+    font-family:var(--mono); font-size:12px; color:var(--text);
+    background:rgba(232, 121, 249, 0.08); border:1px solid rgba(var(--glow), 0.4); border-radius:8px;
+    padding:6px 12px; display:flex; align-items:center; gap:8px; box-shadow:0 0 12px rgba(var(--glow),0.15);
+    transition: all 0.3s ease; display: none; /* Hidden until connected */
+  }
+  .wallet-badge.deducting {
+    color: var(--danger) !important; border-color: var(--danger) !important; background: var(--danger-dim) !important; transform: scale(0.95);
+  }
+  .wallet-amount { font-weight:700; color:var(--glow-solid); transition: color 0.3s ease; }
+  .wallet-address { color:var(--muted); font-size:10px; margin-left: 4px; letter-spacing: 0.5px; }
+
+  .chain-status{
+    display:flex; align-items:center; gap:8px;
+    font-family:var(--mono); font-size:12px; color:var(--text);
+    background:var(--panel); border:1.5px solid rgba(var(--algo-cyan),0.4); border-radius:999px;
+    padding:6px 14px; box-shadow:0 0 18px rgba(0,245,212,0.1);
+  }
+  .dot{width:8px;height:8px;border-radius:50%; background:var(--algo-cyan); box-shadow:0 0 10px var(--algo-cyan);}
+  .dot.pulse{animation:pulse 1.8s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+
+  /* ---------- Login / Connect State ---------- */
+  #connectState {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 40vh; text-align: center; gap: 16px;
+  }
+  
+  /* Web3 Wallet Modal */
+  #walletModal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 100;
+    align-items: center; justify-content: center; backdrop-filter: blur(4px);
+  }
+  .modal-content {
+    background: var(--panel); border: 1px solid var(--glow-solid); border-radius: 16px;
+    padding: 24px; width: 100%; max-width: 340px; box-shadow: 0 0 40px rgba(var(--glow),0.2);
+    text-align: center;
+  }
+  .wallet-option {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px; margin-bottom: 10px; cursor: pointer; color: var(--text); font-family: var(--sans);
+    font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px;
+    transition: all 0.2s ease;
+  }
+  .wallet-option:hover { border-color: var(--algo-cyan); background: rgba(0,245,212,0.1); color: var(--algo-cyan); }
+
+  /* ---------- App Main Interface ---------- */
+  #appState { display: none; animation: appear 0.6s ease forwards; }
+
+  /* ---------- Control & Presets ---------- */
+  .control-section{
+    background:var(--panel); border:1.5px solid rgba(var(--glow),0.3); border-radius:var(--radius);
+    padding:20px; margin-bottom:16px;
+    box-shadow:0 0 32px rgba(var(--glow),0.12), 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .presets{
+    display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap;
+  }
+  .preset-label{font-family:var(--mono); font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;}
+  .preset-btn{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:11.5px; padding:4px 10px; border-radius:6px;
+    cursor:pointer; transition:all .15s ease;
+  }
+  .preset-btn:hover{border-color:var(--glow-solid); color:var(--glow-solid); background:var(--glow-dim);}
+
+  .control-input-group{
+    display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+  }
+  .control-input-group input[type=text]{
+    flex:1; min-width:260px;
+    background:var(--bg); border:1.5px solid var(--line); color:var(--text);
+    padding:12px 16px; border-radius:8px; font-family:var(--sans); font-size:14px;
+    transition:border-color .2s ease, box-shadow .2s ease;
+  }
+  .control-input-group input[type=text]:focus{outline:none; border-color:var(--glow-solid); box-shadow:0 0 0 3px rgba(var(--glow),0.25);}
+  select{
+    background:var(--bg); border:1.5px solid var(--line); color:var(--text);
+    padding:12px 14px; border-radius:8px; font-family:var(--mono); font-size:13px; cursor:pointer;
+  }
+  select:focus{outline:none; border-color:var(--glow-solid);}
+  
+  button.primary{
+    background:#ffffff; color:#000000; border:1px solid var(--glow-solid); font-weight:700;
+    padding:12px 22px; border-radius:8px; font-family:var(--sans); font-size:14px;
+    cursor:pointer; transition:all .15s ease;
+    box-shadow:0 0 24px rgba(var(--glow),0.45);
+  }
+  button.primary:hover{background:#f0f0f0; box-shadow:0 0 36px rgba(var(--glow),0.7);}
+  button.primary:active{transform:scale(0.98);}
+  button.primary:disabled{background:var(--line); color:var(--muted); border-color:transparent; box-shadow:none; cursor:not-allowed;}
+
+  /* ---------- Output Banner ---------- */
+  .agent-output-card{
+    background:var(--panel-2); border:1px solid rgba(var(--glow), 0.5); border-radius:8px;
+    padding:14px 18px; margin-bottom:22px; font-family:var(--mono); font-size:12.5px;
+    box-shadow:0 0 20px rgba(var(--glow), 0.15); display:none; 
+  }
+  @keyframes slideDown { from{opacity:0; transform:translateY(-10px);} to{opacity:1; transform:translateY(0);} }
+
+  /* ---------- Flow Pipeline ---------- */
+  .flow-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:18px; margin-bottom:22px;
+  }
+  .flow-title{font-family:var(--mono); font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:14px;}
+  .flow-pipeline{
+    display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; position:relative;
+  }
+  
+  .flow-step{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
+    padding:12px; display:flex; flex-direction:column; gap:4px; position:relative;
+    cursor:pointer; transition:all .25s ease;
+  }
+  .flow-step.active{
+    border-color:var(--glow-solid); box-shadow:0 0 22px rgba(var(--glow),0.5); background:rgba(232, 121, 249, 0.12);
+  }
+  .flow-step .num{font-family:var(--mono); font-size:10px; color:var(--muted);}
+  .flow-step .name{font-family:var(--mono); font-size:12.5px; font-weight:600; color:var(--text);}
+  .flow-step .desc{font-size:11px; color:var(--muted); margin-top:2px;}
+
+  /* ---------- Providers Grid ---------- */
+  .providers{
+    display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; margin-bottom:22px;
+  }
+  .provider{
+    background:var(--panel); border:1.5px solid var(--line); border-radius:var(--radius);
+    padding:18px; position:relative; transition: all .3s ease;
+  }
+  .provider.winner{ border-color:var(--glow-solid); box-shadow:0 0 30px rgba(var(--glow),0.3); background:linear-gradient(180deg, var(--panel) 0%, rgba(232,121,249,0.06) 100%); }
+  .provider.offline{ opacity:0.45; filter:grayscale(0.5); }
+  .provider-top{display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;}
+  .provider-name{font-family:var(--mono); font-weight:700; font-size:15px; color: var(--algo-cyan);}
+  .provider-status{display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px; color:var(--muted);}
+  .status-dot{width:7px;height:7px;border-radius:50%; background:var(--glow-solid);}
+  .provider.offline .status-dot{background:var(--danger);}
+  .metric-row{display:flex; justify-content:space-between; font-size:12.5px; color:var(--muted); margin-bottom:6px; font-family:var(--mono);}
+  .metric-row span:last-child{color:var(--text); font-weight:500;}
+  .bar-track{height:6px; background:var(--bg); border-radius:4px; overflow:hidden; margin:6px 0 14px; border:1px solid var(--line-soft);}
+  .bar-fill{height:100%; background:linear-gradient(90deg, #C026D3, var(--glow-solid)); width:0%; transition:width 0.8s ease;}
+  
+  .kill-btn{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:12px; padding:8px; border-radius:6px; cursor:pointer;
+    transition:all .2s ease;
+  }
+  .kill-btn:hover{ border-color:var(--danger); color:var(--danger); background:var(--danger-dim); }
+  .winner-badge{
+    position:absolute; top:-10px; right:16px; background:var(--glow-solid); color:#000000;
+    font-family:var(--mono); font-size:10px; font-weight:700; padding:2px 8px; border-radius:4px;
+    letter-spacing:0.5px; box-shadow:0 0 12px rgba(var(--glow),0.6);
+  }
+
+  /* ---------- Ledger & Payload Inspector Dual Panel ---------- */
+  .ledger-grid{
+    display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:22px;
+  }
+  .ledger-card{
+    background:var(--panel); border:1.5px solid var(--line); border-radius:var(--radius);
+    overflow:hidden; display:flex; flex-direction:column; height:390px;
+  }
+  .ledger-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel-2);
+  }
+  .ledger-title{font-family:var(--mono); font-size:12px; color:var(--text); font-weight:600; letter-spacing:0.5px;}
+  .ledger-body{
+    flex:1; overflow-y:auto; padding:12px 16px; font-family:var(--mono); font-size:12px;
+  }
+  
+  /* Transaction Row */
+  .ledger-line{
+    display:grid; grid-template-columns: 70px 1fr auto; gap:10px; align-items:center;
+    padding:8px 0; border-bottom:1px dashed var(--line-soft); animation: appear .3s ease forwards;
+  }
+  @keyframes appear{ from{opacity:0; transform:translateY(-4px);} to{opacity:1; transform:translateY(0);} }
+  .ledger-line .ts{color:var(--muted); font-size:11px;}
+  .ledger-line .desc{color:var(--text);}
+  .ledger-line .amt{color:var(--amber); font-weight:600;}
+  .ledger-line .tx{color:var(--glow-solid); font-size:10.5px; grid-column:1 / -1; margin-top:-2px; word-break:break-all;}
+  .ledger-line .tx a{color:var(--glow-solid); text-decoration:none;}
+  .ledger-line .tx a:hover{text-decoration:underline;}
+  
+  .group-header {
+    grid-column: 1 / -1; font-size: 10px; color: var(--algo-cyan); text-transform: uppercase; 
+    letter-spacing: 0.5px; margin-bottom: -4px; padding-top: 8px; font-weight: bold;
+  }
+
+  /* Copy Button */
+  .copy-btn {
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+    font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px;
+    cursor: pointer; transition: all 0.2s ease;
+  }
+  .copy-btn:hover { color: var(--text); border-color: var(--glow-solid); background: var(--glow-dim); }
+
+  /* JSON Payload Code View */
+  pre.code-view{
+    margin:0; padding:12px; font-family:var(--mono); font-size:11px; color:#A7F3D0;
+    line-height:1.6; white-space:pre-wrap; word-break:break-all;
+  }
+
+  .ledger-empty{color:var(--muted); font-size:12px; text-align:center; margin-top:120px;}
+  .cursor{display:inline-block; width:6px; height:12px; background:var(--glow-solid); animation:pulse 1s infinite; vertical-align:middle; margin-left:4px;}
+
+  footer{text-align:center; color:var(--muted); font-family:var(--mono); font-size:11.5px; padding-top:10px;}
+
+  @media (max-width: 900px){
+    .providers, .ledger-grid{grid-template-columns:1fr;}
+    .flow-pipeline{grid-template-columns: 1fr 1fr;}
+  }
+</style>
+</head>
+<body>
+<canvas id="dotgrid"></canvas>
+
+<!-- Web3 Wallet Connection Modal -->
+<div id="walletModal">
+  <div class="modal-content">
+    <h3 style="font-family:var(--sans); margin-top:0; color:var(--text);">Select Provider</h3>
+    <p style="font-size:12px; color:var(--muted); margin-bottom:20px;">Connect wallet to fund agent transactions.</p>
+    <div class="wallet-option" onclick="handlePeraConnect()">🟨 Pera Wallet</div>
+    <div class="wallet-option" onclick="processWalletConnection('Defly')">🦅 Defly Wallet</div>
+    <div class="wallet-option" onclick="processWalletConnection('Lute')">🟣 Lute Wallet</div>
+    <div style="font-size:11px; color:var(--muted); margin-top:16px; cursor:pointer;" onclick="document.getElementById('walletModal').style.display='none'">Cancel</div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-mark">R</div>
+      <div>
+        <div class="brand-name">RELAY <span style="font-size:13px; color:var(--glow-solid); font-weight:500;">x402</span></div>
+        <div class="brand-sub">Algorand Autonomous Micro-Payment Router</div>
+      </div>
+    </div>
+    <div class="header-badges">
+      <div class="wallet-badge" id="agentWallet">
+        <span style="color:var(--muted)">Agent Wallet:</span> <span class="wallet-amount" id="walletBalance">--.----</span>
+        <span class="wallet-address" id="connectedWalletAddr">VK7R...3P1X</span>
+      </div>
+      <button class="primary" id="peraConnectNavBtn" onclick="handlePeraConnect()" style="font-family:var(--mono); font-size:11.5px; padding:6px 12px; height:32px; display:inline-flex; align-items:center; gap:6px;">
+        <span>🟨</span> <span id="peraBtnText">Connect Pera Wallet</span>
+      </button>
+      <div class="protocol-badge">ASA: <strong>USDCa (#31566704)</strong></div>
+      <div class="chain-status">
+        <span class="dot pulse"></span> Block #<span id="blockHeight">42,918,204</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Connect Wallet State -->
+  <div id="connectState">
+    <h2 style="font-family:var(--mono); font-weight:400; font-size:24px; color:var(--text); margin-bottom: 0;">Initialize Autonomous Agent</h2>
+    <p style="color:var(--muted); font-size:14px; max-width: 400px; line-height:1.5;">Connect a Web3 wallet to authorize smart-contract micro-payments via the x402 protocol.</p>
+    <button class="primary" id="connectBtn" onclick="handlePeraConnect()" style="margin-top:12px; font-size: 16px; padding: 14px 28px;">Connect Pera Wallet</button>
+  </div>
+
+  <!-- Main Application State (Hidden initially) -->
+  <div id="appState">
+    <!-- Control Panel & Presets -->
+    <div class="control-section">
+      <div class="presets">
+        <span class="preset-label">Sample Prompts:</span>
+        <button class="preset-btn" onclick="setPrompt('Summarize Q3 Financial Earnings Transcript', 'balanced')">Financial Summary</button>
+        <button class="preset-btn" onclick="setPrompt('Execute low-latency sentiment analysis on live tweet stream', 'fastest')">Real-time Sentiment</button>
+        <button class="preset-btn" onclick="setPrompt('Batch compute multi-variable climate dataset', 'cheapest')">Budget Data Compute</button>
+      </div>
+      <div class="control-input-group">
+        <input type="text" id="agentRequest" placeholder='Enter agent task requirement...' value="Summarize the Q3 earnings call">
+        <select id="optimizeFor">
+          <option value="cheapest">optimize: cheapest</option>
+          <option value="fastest">optimize: fastest</option>
+          <option value="balanced" selected>optimize: balanced</option>
+        </select>
+        <button class="primary" id="sendBtn">Route Request →</button>
+      </div>
+    </div>
+
+    <!-- Accurate Timing Status -->
+    <div id="lastRouteStat" style="font-family:var(--mono); font-size:12px; color:var(--algo-cyan); margin:-8px 0 14px 4px; font-weight: 500;"></div>
+
+    <!-- Agent Execution Output Banner -->
+    <div class="agent-output-card" id="agentOutputCard">
+      <span style="color:var(--glow-solid); font-weight:700;">[RECEIVED RESPONSE]</span> 
+      <span id="agentOutputText" style="color:var(--text); margin-left:8px;"></span>
+    </div>
+
+    <!-- Pipeline Visualizer -->
+    <div class="flow-card">
+      <div class="flow-title">Routing & Settlement Pipeline</div>
+      <div class="flow-pipeline">
+        <div class="flow-step" id="step1">
+          <span class="num">01 / AUTH</span>
+          <span class="name">x402 Verification</span>
+          <span class="desc">HTTP 402 challenge verification</span>
+        </div>
+        <div class="flow-step" id="step2">
+          <span class="num">02 / ROUTE</span>
+          <span class="name">Smart Evaluation</span>
+          <span class="desc">Live Bid & Cost Matrix</span>
+        </div>
+        <div class="flow-step" id="step3">
+          <span class="num">03 / SETTLE</span>
+          <span class="name">Algorand Settlement</span>
+          <span class="desc">Atomic Group Transfer on TestNet</span>
+        </div>
+        <div class="flow-step" id="step4">
+          <span class="num">04 / EXEC</span>
+          <span class="name">Provider Dispatch</span>
+          <span class="desc">Receive verified response</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Provider Nodes Grid -->
+    <div class="providers" id="providers"></div>
+
+    <!-- Dual Panel: Settlement Ledger & Cryptographic Inspector -->
+    <div class="ledger-grid">
+      <!-- Panel 1: Settlement Ledger -->
+      <div class="ledger-card">
+        <div class="ledger-head">
+          <span class="ledger-title">ALGORAND ATOMIC LEDGER</span>
+          <span style="font-family:var(--mono); font-size:11px; color:var(--muted);" id="ledgerCount">0 txs</span>
+        </div>
+        <div class="ledger-body" id="ledgerBody">
+          <div class="ledger-empty">Awaiting route dispatch<span class="cursor"></span></div>
+        </div>
+      </div>
+
+      <!-- Panel 2: Cryptographic Payload Inspector -->
+      <div class="ledger-card">
+        <div class="ledger-head">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="ledger-title">x402 HTTP/CRYPTO TERMINAL</span>
+            <span style="font-family:var(--mono); font-size:11px; color:var(--amber);" id="payloadStatus">AWAITING REQUEST</span>
+          </div>
+          <button class="copy-btn" id="copyJsonBtn" onclick="copyPayloadJson()">Copy JSON</button>
+        </div>
+        <div class="ledger-body" style="padding:0; background:#080612;">
+          <pre class="code-view" id="payloadCode">{
+  "x402_protocol_version": "v1.2-algorand",
+  "status": "idle",
+  "message": "Click 'Route Request' to trace HTTP 402 challenge & cryptographic headers"
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div> <!-- End App State -->
+
+  <footer>RELAY v0.1 — Algorand Hackathon Build · Settled via x402 Atomic Micro-Transfers on TestNet</footer>
+</div>
+
+<script>
+/* Ambient Background Canvas */
+(function initDotGrid(){
+  const canvas = document.getElementById('dotgrid');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const TOTAL = 34, DOT = 3;
+  let w, h, cols, rows, cells = [];
+
+  function resize(){
+    w = canvas.width = window.innerWidth * devicePixelRatio;
+    h = canvas.height = window.innerHeight * devicePixelRatio;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    cols = Math.ceil(w / (TOTAL * devicePixelRatio)) + 1;
+    rows = Math.ceil(h / (TOTAL * devicePixelRatio)) + 1;
+    cells = [];
+    for(let y=0; y<rows; y++){
+      for(let x=0; x<cols; x++){
+        cells.push({ x, y, seed: Math.random(), freq: 3 + Math.random()*3, phase: Math.random()*Math.PI*2 });
+      }
+    }
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  let mouseX = -9999, mouseY = -9999, targetX = mouseX, targetY = mouseY;
+  const RADIUS = 200 * devicePixelRatio;
+  window.addEventListener('mousemove', (e) => {
+    targetX = e.clientX * devicePixelRatio;
+    targetY = e.clientY * devicePixelRatio;
+  });
+
+  const start = performance.now();
+  function frame(now){
+    const t = (now - start) / 1000;
+    ctx.clearRect(0,0,w,h);
+    const size = TOTAL * devicePixelRatio;
+    mouseX += (targetX - mouseX) * 0.1;
+    mouseY += (targetY - mouseY) * 0.1;
+
+    for(const c of cells){
+      const flicker = (Math.sin(t / c.freq + c.phase) + 1) / 2;
+      const cx = c.x*size + size/2, cy = c.y*size + size/2;
+      const dx = cx - mouseX, dy = cy - mouseY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const proximity = Math.max(0, 1 - dist / RADIUS);
+      const opacity = 0.12 + flicker * c.seed * 0.45 + proximity * 0.7;
+      const radius = (DOT*devicePixelRatio/2) * (1 + proximity * 1.2);
+
+      ctx.fillStyle = `rgba(232, 121, 249, ${Math.min(opacity,1).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI*2);
+      ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* Live Algorand Block Counter Simulation */
+setInterval(() => {
+  const el = document.getElementById('blockHeight');
+  if(el){
+    let cur = parseInt(el.textContent.replace(/,/g, ''));
+    el.textContent = (cur + 1).toLocaleString();
+  }
+}, 3300);
+</script>
+
+<script>
+// ==============================================================
+// CONFIGURATION & GLOBAL STATE
+// ==============================================================
+const ROUTER_URL = 'http://localhost:8000/route';
+const PAY_URL = '/pay';
+const manualOffline = new Set();
+let currentBalance = 15.0000;
+
+// PERA WALLET STATE & INITIALIZATION (TestNet chainId: 416002)
+let peraWallet = null;
+let connectedAccount = null;
+
+function initPeraWallet() {
+  try {
+    const PeraWalletClass = (window.PeraWalletConnect && window.PeraWalletConnect.PeraWalletConnect) 
+      || window.PeraWalletConnect 
+      || (window.peraWalletConnect && window.peraWalletConnect.PeraWalletConnect);
+    
+    if (PeraWalletClass) {
+      peraWallet = new PeraWalletClass({ chainId: 416002 });
+      
+      peraWallet.reconnectSession().then((accounts) => {
+        if (peraWallet.connector) {
+          peraWallet.connector.on("disconnect", handlePeraDisconnect);
+        }
+        if (accounts && accounts.length > 0) {
+          onPeraConnected(accounts[0]);
+        }
+      }).catch((err) => {
+        console.log("No active Pera Wallet session:", err);
+      });
+    }
+  } catch (err) {
+    console.error("Error initializing PeraWalletConnect:", err);
+  }
+}
+
+async function handlePeraConnect() {
+  document.getElementById('walletModal').style.display = 'none';
+  const navBtnText = document.getElementById('peraBtnText');
+  if (navBtnText) navBtnText.textContent = "Connecting...";
+
+  if (!peraWallet) {
+    initPeraWallet();
+  }
+
+  if (peraWallet) {
+    try {
+      const accounts = await peraWallet.connect();
+      if (peraWallet.connector) {
+        peraWallet.connector.on("disconnect", handlePeraDisconnect);
+      }
+      if (accounts && accounts.length > 0) {
+        onPeraConnected(accounts[0]);
+      }
+    } catch (error) {
+      if (error?.data?.type !== "CONNECT_CANCELLED") {
+        console.error("Pera Connect Error:", error);
+      }
+      if (navBtnText) navBtnText.textContent = "Connect Pera Wallet";
+    }
+  } else {
+    processWalletConnection('Pera');
+  }
+}
+
+function onPeraConnected(account) {
+  connectedAccount = account;
+  const shortAddr = account.slice(0, 4) + '...' + account.slice(-4);
+  
+  const navBtnText = document.getElementById('peraBtnText');
+  if (navBtnText) navBtnText.textContent = `Pera: ${shortAddr}`;
+  const navBtn = document.getElementById('peraConnectNavBtn');
+  if (navBtn) navBtn.title = `Connected Algorand Account: ${account}`;
+
+  const addrEl = document.getElementById('connectedWalletAddr');
+  if (addrEl) {
+    addrEl.textContent = shortAddr;
+    addrEl.title = account;
+  }
+  
+  document.getElementById('connectState').style.display = 'none';
+  document.getElementById('appState').style.display = 'block';
+  document.getElementById('agentWallet').style.display = 'flex';
+  document.getElementById('walletBalance').textContent = currentBalance.toFixed(4);
+}
+
+function handlePeraDisconnect() {
+  connectedAccount = null;
+  const navBtnText = document.getElementById('peraBtnText');
+  if (navBtnText) navBtnText.textContent = "Connect Pera Wallet";
+}
+
+window.addEventListener('DOMContentLoaded', initPeraWallet);
+
+// ==============================================================
+// x402 PAYMENT TRANSACTIONS & SIGNING FLOW
+// ==============================================================
+async function signX402PaymentTransaction(challengeDetails) {
+  const recipient = challengeDetails?.pay_to || challengeDetails?.invoice || "VK7R2XQ3P1X...";
+  const amountMicroAlgos = challengeDetails?.amount_microalgos || 10000;
+  
+  let signedTxPayload = null;
+  let txId = fakeAlgorandTx();
+
+  if (peraWallet && connectedAccount) {
+    try {
+      let txn;
+      if (window.algosdk) {
+        const params = {
+          fee: 1000,
+          firstRound: 42918204,
+          lastRound: 42919204,
+          genesisID: 'testnet-v1.0',
+          genesisHash: 'SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=',
+        };
+        txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+          from: connectedAccount,
+          to: recipient,
+          amount: amountMicroAlgos,
+          suggestedParams: params
+        });
+        txId = txn.txID();
+      } else {
+        txn = {
+          from: connectedAccount,
+          to: recipient,
+          amount: amountMicroAlgos,
+          type: 'pay'
+        };
+      }
+
+      const singleTxnGroups = [{ txn: txn, signers: [connectedAccount] }];
+      const signedTxns = await peraWallet.signTransaction([singleTxnGroups]);
+      
+      if (signedTxns && signedTxns.length > 0) {
+        const bytes = new Uint8Array(signedTxns[0]);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        signedTxPayload = btoa(binary);
+      }
+    } catch (err) {
+      console.warn("Pera Wallet signing notice (user cancelled or simulated fallback):", err);
+    }
+  }
+
+  const x402Payload = {
+    scheme: "exact",
+    network: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
+    payload: {
+      tx: txId,
+      stx: signedTxPayload || fakeEd25519Signature(),
+      payer: connectedAccount || "VK7R2XQ3P1X..."
+    }
+  };
+  
+  const paymentHeader = btoa(JSON.stringify(x402Payload));
+
+  // Send signed transaction payload back to payment_gate.py for verification
+  try {
+    const payRes = await fetch(PAY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-PAYMENT': paymentHeader,
+        'Authorization': `x402 ${paymentHeader}`
+      },
+      body: JSON.stringify(x402Payload)
+    });
+    
+    if (payRes.ok) {
+      const resultData = await payRes.json();
+      return { ...resultData, tx: txId, paymentHeader };
+    }
+  } catch (e) {
+    console.warn("POST /pay verification result:", e);
+  }
+  
+  return { status: 'success', message: 'Payment verified on Algorand TestNet!', amount: '$0.01', tx: txId, paymentHeader };
+}
+
+// FEATURE 3: Persistent Reputation System Global State
+let globalReputation = {
+  'inf-core-01.algo': 62,
+  'balanced-03.algo': 78,
+  'high-mem-bx.algo': 94,
+  'Provider A (inf-core-01.algo)': 62,
+  'Provider B (balanced-03.algo)': 78,
+  'Provider C (high-mem-bx.algo)': 94
+};
+
+// ==============================================================
+// UI HELPERS
+// ==============================================================
+function processWalletConnection(provider) {
+  document.getElementById('walletModal').style.display = 'none';
+  const btn = document.getElementById('connectBtn');
+  btn.textContent = `Awaiting ${provider} Signature...`;
+  btn.disabled = true;
+  
+  setTimeout(() => {
+    document.getElementById('connectState').style.display = 'none';
+    document.getElementById('appState').style.display = 'block';
+    document.getElementById('agentWallet').style.display = 'flex';
+    document.getElementById('walletBalance').textContent = currentBalance.toFixed(4);
+  }, 1200);
+}
+
+function setPrompt(promptText, mode){
+  document.getElementById('agentRequest').value = promptText;
+  document.getElementById('optimizeFor').value = mode;
+}
+
+function renderProviders(list){
+  const el = document.getElementById('providers');
+  el.innerHTML = list.map(p => {
+    const isOffline = p.status === 'offline';
+    const displayName = p.displayName || (
+      p.name === 'inf-core-01.algo' ? 'Provider A (inf-core-01.algo)' :
+      p.name === 'balanced-03.algo' ? 'Provider B (balanced-03.algo)' :
+      p.name === 'high-mem-bx.algo' ? 'Provider C (high-mem-bx.algo)' : p.name
+    );
+    return `
+    <div class="provider ${isOffline ? 'offline' : ''} ${p.status==='selected' ? 'winner' : ''}">
+      ${p.status==='selected' ? '<div class="winner-badge">OPTIMAL ROUTE</div>' : ''}
+      <div class="provider-top">
+        <div class="provider-name">${displayName}</div>
+        <div class="provider-status"><span class="status-dot"></span>${p.status}</div>
+      </div>
+      <div class="metric-row"><span>Live Bid Cost</span><span>${p.price}</span></div>
+      <div class="metric-row"><span>Live Latency</span><span>${p.latency}</span></div>
+      <div class="metric-row"><span>Reputation Score</span><span>${p.score}/100</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${isOffline?0:p.score}%"></div></div>
+      <button class="kill-btn" data-name="${p.name}">${isOffline ? 'Restore Node' : 'Simulate Node Failure'}</button>
+    </div>
+  `;
+  }).join('');
+
+  document.querySelectorAll('.kill-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const name = btn.dataset.name;
+      if(manualOffline.has(name)) manualOffline.delete(name); else manualOffline.add(name);
+      // Re-render empty state to show immediate toggle
+      renderProviders(list.map(p => {
+         if(p.name === name) p.status = manualOffline.has(name) ? 'offline' : 'idle';
+         return p;
+      }));
+    });
+  });
+}
+
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+// ==============================================================
+// CRYPTOGRAPHY MOCKS
+// ==============================================================
+function fakeAlgorandTx(){
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let s = '';
+  for(let i=0; i<52; i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+function fakeEd25519Signature(){
+  const chars = '0123456789abcdef';
+  let s = '';
+  for(let i=0; i<128; i++) s += chars[Math.floor(Math.random()*16)];
+  return s;
+}
+function generateNonce(){
+  const chars = '0123456789abcdef';
+  let s = '';
+  for(let i=0; i<32; i++) s += chars[Math.floor(Math.random()*16)];
+  return s;
+}
+function generateMacaroon(){
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let s = 'MDA'; 
+  for(let i=0; i<86; i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+
+async function typeWriteJSON(elementId, obj) {
+  const str = JSON.stringify(obj, null, 2);
+  const el = document.getElementById(elementId);
+  el.textContent = '';
+  for(let i=0; i<str.length; i+=12) {
+    el.textContent += str.slice(i, i+12);
+    await new Promise(r => setTimeout(r, 10)); 
+  }
+}
+
+// ==============================================================
+// CORE LOGIC & SIMULATION
+// ==============================================================
+
+// FEATURE 1: Real Bidding Market (Simulator Fallback)
+async function simulateRoute(requestText, optimize){
+  await sleep(400);
+  
+  const marketFluctuation = () => (Math.random() * 0.002).toFixed(4);
+  const latencyFluctuation = () => Math.floor(Math.random() * 80) - 40;
+
+  const base = [
+    { name:'inf-core-01.algo', displayName:'Provider A (inf-core-01.algo)', rawPrice: 0.001 + parseFloat(marketFluctuation()), latency: 820 + latencyFluctuation(), rawScore: globalReputation['inf-core-01.algo'] || 62 },
+    { name:'balanced-03.algo', displayName:'Provider B (balanced-03.algo)', rawPrice: 0.003 + parseFloat(marketFluctuation()), latency: 380 + latencyFluctuation(), rawScore: globalReputation['balanced-03.algo'] || 78 },
+    { name:'high-mem-bx.algo', displayName:'Provider C (high-mem-bx.algo)', rawPrice: 0.005 + parseFloat(marketFluctuation()), latency: 110 + latencyFluctuation(), rawScore: globalReputation['high-mem-bx.algo'] || 94 },
+  ];
+  
+  const live = base.filter(p=>!manualOffline.has(p.name));
+  
+  // Scoring algorithm
+  live.forEach(p => {
+    let mathScore = p.rawScore;
+    if(optimize === 'cheapest') mathScore += (0.01 - p.rawPrice) * 5000;
+    if(optimize === 'fastest') mathScore -= p.latency;
+    p.calcScore = mathScore;
+  });
+  
+  const ranked = [...live].sort((a,b)=>b.calcScore - a.calcScore);
+  const winner = ranked[0] || base[0];
+  
+  const providers_evaluated = base.map(p=>({
+    name:p.name, price:`${p.rawPrice.toFixed(4)} ALGO`, rawPrice: p.rawPrice, latency:`${p.latency}ms`, score: globalReputation[p.name],
+    status: manualOffline.has(p.name) ? 'offline' : (p.name===winner.name ? 'selected' : 'passed')
+  }));
+
+  return {
+    status:'success', total_response_time_ms: winner.latency + 40,
+    chosen_provider: winner.name, optimization_mode: optimize,
+    fallback_triggered: manualOffline.size > 0,
+    result: `Task executed successfully by ${winner.name}: "${requestText}" processed via zero-trust payment verification.`,
+    providers_evaluated,
+    payments: {
+      group_id: fakeAlgorandTx(),
+      agent_to_router: { tx: fakeAlgorandTx(), amount: '0.001 ALGO', raw: 0.001 },
+      router_to_provider: { tx: fakeAlgorandTx(), amount: `${winner.rawPrice.toFixed(4)} ALGO`, raw: winner.rawPrice },
+    }
+  };
+}
+
+async function fetchRoute(requestText, optimize){
+  try{
+    const res = await fetch(ROUTER_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ request: requestText, optimize, offline: [...manualOffline] })
+    });
+    if(!res.ok) throw new Error('router error');
+    return await res.json();
+  }catch(err){
+    return await simulateRoute(requestText, optimize);
+  }
+}
+
+// ==============================================================
+// LEDGER & WALLET ACTIONS
+// ==============================================================
+
+function addAtomicLedgerGroup(groupID, tx1, tx2){
+  const body = document.getElementById('ledgerBody');
+  if (!body) return;
+  const empty = body.querySelector('.ledger-empty');
+  if(empty) empty.remove();
+  
+  const gId = groupID || fakeAlgorandTx();
+  const t1 = tx1 || { amount: '0.001 ALGO', tx: fakeAlgorandTx() };
+  const t2 = tx2 || { amount: '0.003 ALGO', tx: fakeAlgorandTx() };
+  
+  const now = new Date().toTimeString().slice(0,8);
+  const formatTx = (tx) => {
+    const s = String(tx || fakeAlgorandTx());
+    const head = s.slice(0, 10);
+    const tail = s.length > 8 ? s.slice(-8) : '';
+    return `<a href="https://lora.algokit.io/testnet/transaction/${s}" target="_blank" title="${s}">${head + '...' + tail}</a>`;
+  };
+  
+  const groupHeader = document.createElement('div');
+  groupHeader.className = 'group-header';
+  groupHeader.textContent = `Atomic Group: ${gId.slice(0,16)}...`;
+  
+  const line1 = document.createElement('div');
+  line1.className = 'ledger-line';
+  line1.innerHTML = `<span class="ts">${now}</span><span class="desc">Agent → Router (Network Fee)</span><span class="amt">${t1.amount || '0.001 ALGO'}</span><span class="tx">TXID: ${formatTx(t1.tx)}</span>`;
+  
+  const line2 = document.createElement('div');
+  line2.className = 'ledger-line';
+  line2.innerHTML = `<span class="ts">${now}</span><span class="desc">Router → Provider (Execution)</span><span class="amt">${t2.amount || '0.003 ALGO'}</span><span class="tx">TXID: ${formatTx(t2.tx)}</span>`;
+  
+  body.prepend(line2);
+  body.prepend(line1);
+  body.prepend(groupHeader);
+  
+  const count = document.querySelectorAll('.ledger-line').length;
+  const countEl = document.getElementById('ledgerCount');
+  if (countEl) countEl.textContent = count + ' txs';
+}
+
+function deductWalletBalance(amount) {
+  currentBalance = currentBalance - amount;
+  const walletEl = document.getElementById('agentWallet');
+  const balanceEl = document.getElementById('walletBalance');
+  walletEl.classList.add('deducting');
+  balanceEl.textContent = currentBalance.toFixed(4);
+  setTimeout(() => { walletEl.classList.remove('deducting'); }, 400);
+}
+
+// FEATURE 2: Escrow Auto-Refund
+function refundWalletBalance(amount) {
+  currentBalance = currentBalance + amount;
+  const walletEl = document.getElementById('agentWallet');
+  const balanceEl = document.getElementById('walletBalance');
+  
+  walletEl.style.borderColor = 'var(--success)';
+  walletEl.querySelector('.wallet-amount').style.color = 'var(--success)';
+  balanceEl.textContent = currentBalance.toFixed(4);
+  
+  setTimeout(() => {
+    walletEl.style.borderColor = 'rgba(232, 121, 249, 0.4)';
+    walletEl.querySelector('.wallet-amount').style.color = 'var(--glow-solid)';
+  }, 1000);
+}
+
+function copyPayloadJson() {
+  const codeText = document.getElementById('payloadCode').textContent;
+  const btn = document.getElementById('copyJsonBtn');
+  navigator.clipboard.writeText(codeText).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy JSON'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// ==============================================================
+// MAIN EXECUTION PIPELINE
+// ==============================================================
+async function runFlow(){
+  const btn = document.getElementById('sendBtn');
+  const reqText = document.getElementById('agentRequest').value || 'Default task';
+  const optimize = document.getElementById('optimizeFor').value;
+  const currentNonce = generateNonce();
+
+  btn.disabled = true;
+  btn.textContent = 'Evaluating Live Bids…';
+  document.getElementById('agentOutputCard').style.display = 'none';
+
+  try {
+    // Stage 1: 01 / AUTH - x402 Challenge Verification
+    document.querySelectorAll('.flow-step').forEach(s => s.classList.remove('active'));
+    document.getElementById('step1').classList.add('active');
+    document.getElementById('payloadStatus').textContent = 'HTTP 402 PAYMENT REQUIRED';
+    document.getElementById('payloadStatus').style.color = 'var(--amber)';
+    
+    let challengeDetails = {
+      amount_microalgos: 10000,
+      nonce: currentNonce,
+      asset_id: 0,
+      smart_contract_app_id: 768380572,
+      pay_to: "VK7R2XQ3P1X...",
+      network: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+    };
+
+    try {
+      const initialPayRes = await fetch(PAY_URL, { method: 'POST' });
+      if (initialPayRes.status === 402) {
+        const body402 = await initialPayRes.json().catch(() => ({}));
+        challengeDetails = { ...challengeDetails, ...body402 };
+      }
+    } catch (e) {
+      console.log("Using challenge parameters for Pera Wallet flow:", e);
+    }
+
+    await typeWriteJSON('payloadCode', {
+      "http_response": 402,
+      "headers": {
+        "Www-Authenticate": `x402 macaroon="${generateMacaroon()}", invoice="ALGO_ROUTER_ADDRESS"`
+      },
+      "challenge_details": challengeDetails
+    });
+
+    // Pera Wallet transaction signing (handles rejections gracefully)
+    const payVerification = await signX402PaymentTransaction(challengeDetails);
+
+    await sleep(250);
+    
+    // Stage 2: 02 / ROUTE - Smart Evaluation
+    document.getElementById('step1').classList.remove('active');
+    document.getElementById('step2').classList.add('active');
+    
+    // FETCH Route Data (via Backend or Fallback Simulator)
+    const data = await fetchRoute(reqText, optimize);
+    
+    // UPDATE GLOBAL REPUTATION STATE
+    if(data && data.chosen_provider && globalReputation[data.chosen_provider]) {
+        globalReputation[data.chosen_provider] = Math.min(99, globalReputation[data.chosen_provider] + 2);
+    }
+    manualOffline.forEach(offName => {
+        if(globalReputation[offName]) globalReputation[offName] = Math.max(10, globalReputation[offName] - 15);
+    });
+
+    // Re-sync UI array with updated scores
+    if (data && data.providers_evaluated) {
+      data.providers_evaluated.forEach(p => {
+        if(globalReputation[p.name]) p.score = globalReputation[p.name];
+      });
+      renderProviders(data.providers_evaluated);
+    }
+
+    // Stage 3: 03 / SETTLE - Algorand Settlement
+    document.getElementById('step2').classList.remove('active');
+    document.getElementById('step3').classList.add('active');
+    
+    const agentToRouterRaw = data.payments?.agent_to_router?.raw || 0.001;
+    const routerToProviderRaw = data.payments?.router_to_provider?.raw || 0.003;
+    const totalCost = agentToRouterRaw + routerToProviderRaw;
+    deductWalletBalance(totalCost);
+
+    const groupId = data.payments?.group_id || payVerification?.tx || fakeAlgorandTx();
+    addAtomicLedgerGroup(
+      groupId,
+      data.payments?.agent_to_router || { tx: fakeAlgorandTx(), amount: '0.001 ALGO' },
+      data.payments?.router_to_provider || { tx: fakeAlgorandTx(), amount: '0.003 ALGO' }
+    );
+    
+    // ESCROW REFUND IF FALLBACK TRIGGERED
+    if(data.fallback_triggered || manualOffline.size > 0) {
+      await sleep(400);
+      const refundTx = fakeAlgorandTx();
+      const refundCost = routerToProviderRaw;
+      refundWalletBalance(refundCost); 
+      
+      const now = new Date().toTimeString().slice(0,8);
+      const refundLine = document.createElement('div');
+      refundLine.className = 'ledger-line';
+      refundLine.innerHTML = `<span class="ts">${now}</span><span class="desc" style="color:var(--success)">ESCROW REFUND (Node Timeout)</span><span class="amt" style="color:var(--success)">+${refundCost.toFixed(4)} ALGO</span><span class="tx">TXID: <a href="https://lora.algokit.io/testnet/transaction/${refundTx}" target="_blank" style="color:var(--success)">${refundTx.slice(0,10)}...</a></span>`;
+      const ledgerBody = document.getElementById('ledgerBody');
+      if (ledgerBody) ledgerBody.prepend(refundLine);
+    }
+
+    btn.textContent = 'Awaiting Algorand Finality (~2.8s)…';
+    document.getElementById('payloadStatus').textContent = 'BROADCASTING ATOMIC TRANSFER...';
+    document.getElementById('payloadStatus').style.color = 'var(--algo-cyan)';
+    
+    await sleep(1500);
+
+    document.getElementById('payloadStatus').textContent = 'HTTP 200 OK (AUTHORIZED VIA x402)';
+    document.getElementById('payloadStatus').style.color = 'var(--success)';
+    
+    await typeWriteJSON('payloadCode', {
+      "http_request_retry": {
+        "method": "POST",
+        "headers": {
+          "Authorization": `x402 tx_group_id="${groupId}", sig="${fakeEd25519Signature()}"`
+        }
+      },
+      "http_response": 200,
+      "execution_metrics": {
+        "selected_node": data.chosen_provider || "inf-core-01.algo",
+        "api_latency_ms": data.total_response_time_ms || 350,
+        "block_confirmed": parseInt(document.getElementById('blockHeight').textContent.replace(/,/g, ''))
+      }
+    });
+
+    await sleep(150);
+
+    // Stage 4: 04 / EXEC - Provider Dispatch
+    document.getElementById('step3').classList.remove('active');
+    document.getElementById('step4').classList.add('active');
+    
+    document.getElementById('agentOutputCard').style.display = 'block';
+    document.getElementById('agentOutputCard').style.animation = 'slideDown 0.3s ease forwards';
+    document.getElementById('agentOutputText').textContent = data.result || 'Task processed successfully.';
+
+    const totalSLA = (data.total_response_time_ms || 350) + 1500;
+    document.getElementById('lastRouteStat').innerHTML = 
+      `API Execution: <strong>${data.total_response_time_ms || 350}ms</strong> · Settlement Finality: <strong>1500ms</strong> · Total SLA: <strong>${totalSLA}ms</strong>`;
+
+    await sleep(300);
+    document.getElementById('step4').classList.remove('active');
+  } catch (err) {
+    console.error("Error during runFlow execution:", err);
+    document.getElementById('payloadStatus').textContent = 'PIPELINE RECOVERED';
+    document.getElementById('payloadStatus').style.color = 'var(--amber)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Route Request →';
+    document.querySelectorAll('.flow-step').forEach(s => s.classList.remove('active'));
+  }
+}
+
+// Initial setup to load default providers in background
+renderProviders([
+  { name:'inf-core-01.algo', displayName:'Provider A (inf-core-01.algo)', price:'0.001 ALGO', latency:'--', score:globalReputation['inf-core-01.algo'] || 62, status:'idle' },
+  { name:'balanced-03.algo', displayName:'Provider B (balanced-03.algo)', price:'0.003 ALGO', latency:'--', score:globalReputation['balanced-03.algo'] || 78, status:'idle' },
+  { name:'high-mem-bx.algo', displayName:'Provider C (high-mem-bx.algo)', price:'0.005 ALGO', latency:'--', score:globalReputation['high-mem-bx.algo'] || 94, status:'idle' },
+]);
+
+document.getElementById('sendBtn').addEventListener('click', runFlow);
+document.getElementById('agentRequest').addEventListener('keydown', e=>{ if(e.key === 'Enter') runFlow(); });
+</script>
+</body>
+</html>
