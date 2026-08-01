@@ -1,22 +1,40 @@
-# nexus-route
+# RELAY — Algorand x402 Agent Payment Router
 
-Welcome to your new AlgoKit project!
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Relay_x402-brightgreen?style=for-the-badge&logo=render)](https://relay-x402.onrender.com)
+[![Algorand](https://img.shields.io/badge/Algorand-TestNet-blue?style=for-the-badge&logo=algorand)](https://testnet.algoexplorer.io/)
+[![Protocol](https://img.shields.io/badge/Protocol-x402_HTTP_402-purple?style=for-the-badge)](https://x402.org)
 
-This is your workspace root. A `workspace` in AlgoKit is an orchestrated collection of standalone projects (backends, smart contracts, frontend apps and etc).
+**RELAY** is an autonomous, zero-trust micro-payment routing protocol designed for AI agents. Built natively for the **Algorand TestNet**, RELAY intercepts API requests, manages dynamic node bidding, enforces cryptographic payment flows via the **x402 protocol**, and secures transactions using **Atomic Group Transfers** with automated escrow refunds.
 
-By default, `projects_root_path` parameter is set to `projects`. Which instructs AlgoKit CLI to create a new directory under `projects` directory when new project is instantiated via `algokit init` at the root of the workspace.
+🌐 **Deployed Web Service:** [https://relay-x402.onrender.com](https://relay-x402.onrender.com)
 
-## Getting Started
+---
 
-To get started refer to `README.md` files in respective sub-projects in the `projects` directory.
+## 🚀 Key Features
 
-To learn more about algokit, visit [documentation](https://github.com/algorandfoundation/algokit-cli/blob/main/docs/algokit.md).
+* **Algorand x402 Micro-Payments:** Implements the `HTTP 402 Payment Required` standard, enforcing cryptographic payment handshakes before AI inference outputs are dispatched.
+* **Real-Time Bidding Market:** Decentralized providers dynamically bid on tasks based on real-time server load, margin, price, and latency matrices.
+* **Atomic Group Transfers:** Bundles network fees and provider execution costs into a single atomic transaction group on Algorand for absolute security.
+* **Escrow + Auto-Refund Mechanism:** Automatically triggers on-chain rollback and refunds the agent's wallet if a provider node times out or fails post-payment.
+* **Cumulative Reputation System:** Tracks long-term provider reliability, dynamically incrementing score metrics on success and penalizing offline nodes.
+* **Interactive Crypto Inspector:** Real-time terminal tracing raw HTTP headers, Ed25519 signatures, and Base32 transaction proofs.
 
-### GitHub Codespaces
+---
 
-To get started execute:
+## 📂 System Architecture
 
-1. `algokit generate devcontainer` - invoking this command from the root of this repository will create a `devcontainer.json` file with all the configuration needed to run this project in a GitHub codespace. [Run the repository inside a codespace](https://docs.github.com/en/codespaces/getting-started/quickstart) to get started.
-2. `algokit init` - invoke this command inside a github codespace to launch an interactive wizard to guide you through the process of creating a new AlgoKit project
-
-Powered by [Copier templates](https://copier.readthedocs.io/en/stable/).
+```text
+projects/nexus-route/
+├── frontend/
+│   └── index.html             # High-octane cyber dashboard, live canvas, terminal inspector
+└── backend/
+    ├── server.js              # Express core application & middleware
+    ├── data/
+    │   └── state.js           # In-memory store for node statuses & reputation history
+    ├── routes/
+    │   ├── router.js          # Core POST /route endpoint logic
+    │   ├── admin.js           # Node failure simulation (/kill, /revive)
+    │   └── providers.js       # Active AI node registry
+    └── services/
+        ├── payment.js         # Atomic transfers & escrow auto-refund protocols
+        └── scoring.js         # Dynamic bidding and cumulative reputation algorithms

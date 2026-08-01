@@ -50,7 +50,9 @@ async function payProvider(fromAddress, toAddress, amount) {
     tx: fakeTxHash,
     amount: formattedAmount,
     status: "confirmed",
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    from: fromAddress,
+    to: toAddress
   };
 }
 

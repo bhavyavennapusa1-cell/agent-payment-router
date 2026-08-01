@@ -16,7 +16,7 @@ router.post('/route', async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const { query, optimize, agentId } = req.body || {};
+    const { query, optimize, agentId, sender, senderAddress, peraAddress, connectedAccount, payer, recipient, recipientAddress } = req.body || {};
 
     // Input Validation: query is strictly required
     if (!query || typeof query !== 'string' || query.trim().length === 0) {
@@ -33,10 +33,16 @@ router.post('/route', async (req, res) => {
       ? optimize.toLowerCase()
       : "balanced";
 
-    const effectiveAgentId = agentId || "agent_123";
+    const headerSender = req.headers['x-pera-address'] || req.headers['x-sender-address'];
+    const headerRecipient = req.headers['x-recipient-address'] || req.headers['x-pay-to'];
+
+    const defaultRecipient = process.env.AVM_ADDRESS || "O7N4OJSAHPSREE57UJFOQWAKYMEKAWDU72HHFKH4M7REAQM4Z37XKPDOGE";
+
+    const effectiveSender = headerSender || sender || senderAddress || peraAddress || connectedAccount || payer || agentId || "agent_123";
+    const effectiveRecipient = headerRecipient || recipient || recipientAddress || defaultRecipient;
 
     console.log(`\n==================================================`);
-    console.log(`[NexRoute] Incoming Request | Query: "${query}" | Mode: "${mode}" | Agent: "${effectiveAgentId}"`);
+    console.log(`[NexRoute] Incoming Request | Query: "${query}" | Mode: "${mode}" | Sender: "${effectiveSender}" | Recipient: "${effectiveRecipient}"`);
 
     // Step 1: Filter to only alive providers
     const aliveProviders = state.getAliveProviders();
@@ -79,7 +85,7 @@ router.post('/route', async (req, res) => {
         // HTTP call to provider with 2000ms timeout
         const response = await axios.post(
           candidate.url,
-          { query, agentId: effectiveAgentId },
+          { query, agentId: effectiveSender },
           { timeout: 2000 }
         );
 
@@ -96,13 +102,13 @@ router.post('/route', async (req, res) => {
           console.log(`[NexRoute] Triggering payment settlement for call amount: $${candidate.basePrice}...`);
 
           const agentToRouterTx = await payProvider(
-            effectiveAgentId,
-            "nexroute_router",
+            effectiveSender,
+            effectiveRecipient || "nexroute_router",
             candidate.basePrice
           );
 
           const routerToProviderTx = await payProvider(
-            "nexroute_router",
+            effectiveRecipient || "nexroute_router",
             candidate.id,
             candidate.basePrice
           );
@@ -127,12 +133,16 @@ router.post('/route', async (req, res) => {
               agent_to_router: {
                 tx: agentToRouterTx.tx,
                 amount: agentToRouterTx.amount,
-                status: agentToRouterTx.status
+                status: agentToRouterTx.status,
+                from: agentToRouterTx.from || effectiveSender,
+                to: agentToRouterTx.to || effectiveRecipient
               },
               router_to_provider: {
                 tx: routerToProviderTx.tx,
                 amount: routerToProviderTx.amount,
-                status: routerToProviderTx.status
+                status: routerToProviderTx.status,
+                from: routerToProviderTx.from || effectiveRecipient,
+                to: routerToProviderTx.to || candidate.id
               }
             }
           };
