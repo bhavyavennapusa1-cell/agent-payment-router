@@ -919,21 +919,34 @@ function addAtomicLedgerGroup(groupID, tx1, tx2){
   const empty = body.querySelector('.ledger-empty');
   if(empty) empty.remove();
   
-  const gId = groupID || fakeAlgorandTx();
-  const t1 = tx1 || { amount: '0.001 ALGO', tx: fakeAlgorandTx() };
-  const t2 = tx2 || { amount: '0.003 ALGO', tx: fakeAlgorandTx() };
+  const isRealTx = (txStr) => {
+    return txStr && typeof txStr === 'string' && txStr.length === 52 && !txStr.startsWith('mock-') && !txStr.includes('-');
+  };
+
+  const gId = groupID || '';
+  const t1 = tx1 || { amount: '0.001 ALGO', tx: '' };
+  const t2 = tx2 || { amount: '0.003 ALGO', tx: '' };
   
   const now = new Date().toTimeString().slice(0,8);
   const formatTx = (tx) => {
-    const s = String(tx || fakeAlgorandTx());
-    const head = s.slice(0, 10);
-    const tail = s.length > 8 ? s.slice(-8) : '';
-    return `<a href="https://lora.algokit.io/testnet/transaction/${s}" target="_blank" title="${s}">${head + '...' + tail}</a>`;
+    const s = String(tx || '');
+    if (isRealTx(s)) {
+      const head = s.slice(0, 10);
+      const tail = s.length > 8 ? s.slice(-8) : '';
+      return `<a href="https://lora.algokit.io/testnet/transaction/${s}" target="_blank" title="${s}">${head + '...' + tail}</a>`;
+    } else {
+      const displayStr = s ? (s.slice(0, 10) + '...') : 'mock-tx';
+      return `<span style="color:var(--muted);">${displayStr}</span> <span style="color:var(--amber); font-size:10px; font-weight:bold; margin-left:4px;">[SIMULATED]</span>`;
+    }
   };
   
   const groupHeader = document.createElement('div');
   groupHeader.className = 'group-header';
-  groupHeader.textContent = `Atomic Group: ${gId.slice(0,16)}...`;
+  if (isRealTx(gId)) {
+    groupHeader.innerHTML = `Atomic Group ID: <a href="https://lora.algokit.io/testnet/transaction/${gId}" target="_blank" style="color:var(--algo-cyan); font-weight:600;">${gId.slice(0,16)}...</a>`;
+  } else {
+    groupHeader.innerHTML = `Atomic Group: ${gId ? gId.slice(0,16) + '...' : 'mock-group'} <span style="color:var(--amber); font-size:10px; font-weight:bold; margin-left:4px;">[SIMULATED]</span>`;
+  }
   
   const senderLabel = t1.from ? (t1.from.length > 12 ? t1.from.slice(0, 4) + '...' + t1.from.slice(-4) : t1.from) : (connectedAccount ? connectedAccount.slice(0, 4) + '...' + connectedAccount.slice(-4) : 'Agent');
   const line1 = document.createElement('div');

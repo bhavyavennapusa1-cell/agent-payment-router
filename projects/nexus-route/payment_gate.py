@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exception_handlers import http_exception_handler
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import algosdk
 from algosdk import mnemonic, account
 from algosdk.v2client import algod
 from algosdk.transaction import PaymentTxn, wait_for_confirmation
@@ -114,6 +115,7 @@ class DemoFacilitatorClient(HTTPFacilitatorClient):
         payload,
         requirements,
     ) -> VerifyResponse:
+        DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
         tx_id = ""
         payer_addr = getattr(requirements, "pay_to", AVM_ADDRESS)
         if payload and getattr(payload, "payload", None):
@@ -121,7 +123,7 @@ class DemoFacilitatorClient(HTTPFacilitatorClient):
             tx_id = p_dict.get("tx") or p_dict.get("txId") or p_dict.get("transactionId") or ""
             if p_dict.get("payer"):
                 payer_addr = p_dict.get("payer")
-        if tx_id.startswith("mock-"):
+        if DEV_MODE and tx_id.startswith("mock-"):
             return VerifyResponse(is_valid=True, payer=payer_addr)
         
         res = await super().verify(payload, requirements)
@@ -134,6 +136,7 @@ class DemoFacilitatorClient(HTTPFacilitatorClient):
         payload,
         requirements,
     ) -> SettleResponse:
+        DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
         tx_id = "mock-tx"
         payer_addr = getattr(requirements, "pay_to", AVM_ADDRESS)
         if payload and getattr(payload, "payload", None):
@@ -141,7 +144,7 @@ class DemoFacilitatorClient(HTTPFacilitatorClient):
             tx_id = p_dict.get("tx") or p_dict.get("txId") or p_dict.get("transactionId") or "mock-tx"
             if p_dict.get("payer"):
                 payer_addr = p_dict.get("payer")
-        if tx_id.startswith("mock-"):
+        if DEV_MODE and tx_id.startswith("mock-"):
             return SettleResponse(
                 success=True,
                 transaction=tx_id,
@@ -210,7 +213,7 @@ resource_server = x402ResourceServer(
 register_exact_avm_server(resource_server)
 
 # ---------------------------------------------------------------------------
-# Route configuration: POST /pay requires $0.01 on Algorand TestNet
+# Route configuration: POST /pay and POST /route are gated by x402
 # ---------------------------------------------------------------------------
 routes: dict = {
     "POST /pay": RouteConfig(
@@ -222,6 +225,15 @@ routes: dict = {
         ),
         description="Nexus-Route payment endpoint — $0.01 on Algorand TestNet",
     ),
+    "POST /route": RouteConfig(
+        accepts=PaymentOption(
+            scheme="exact",
+            network=ALGORAND_TESTNET_NETWORK,
+            pay_to=AVM_ADDRESS,
+            price="$0.01",
+        ),
+        description="Nexus-Route core routing endpoint — $0.01 on Algorand TestNet",
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -230,8 +242,8 @@ routes: dict = {
 app = FastAPI(
     title="Nexus-Route Payment Gateway",
     description=(
-        "A FastAPI service that gates POST /pay behind an x402 "
-        "micro-payment of $0.01 on Algorand TestNet."
+        "A FastAPI service that gates POST /pay and POST /route behind x402 "
+        "micro-payments of $0.01 on Algorand TestNet."
     ),
     version="0.1.0",
 )
@@ -245,7 +257,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Attach x402 ASGI middleware — only /pay is gated
+# Attach x402 ASGI middleware — gates both /pay and /route
 app.add_middleware(
     PaymentMiddlewareASGI,
     routes=routes,
@@ -389,20 +401,23 @@ def score_providers(providers, mode):
     result.sort(key=lambda x: x["score"], reverse=True)
     return result
 
+# Note: For this demo, unless a distinct PROVIDER_ADDRESS environment variable is set,
+# the router -> provider payout defaults to ROUTER_ADDRESS. The demo uses a single funded
+# Algorand TestNet account for both router and provider payout roles; sender and receiver
+# addresses may coincide on-chain.
+PROVIDER_ADDRESS: str = os.getenv("PROVIDER_ADDRESS", "").strip() or ROUTER_ADDRESS
+
 async def pay_provider(from_address: str, to_address: str, amount):
     if isinstance(amount, str):
         amount = float(amount.replace("$", ""))
     micro_amount = max(int(amount * 1_000_000), 1000)  # min 1000 microAlgos
 
-    # Since agent and router currently share one funded account for this
-    # demo, send payments back to ROUTER_ADDRESS itself as the receiver
-    # in all cases — this still produces a real, verifiable on-chain
-    # transaction even though sender and receiver may coincide.
-    recipient = ROUTER_ADDRESS
+    recipient = PROVIDER_ADDRESS
+    note = f"nexus-route-tx-{int(time.time()*1000)}-{random.randint(1000,9999)}".encode()
 
     try:
         params = algod_client.suggested_params()
-        txn = PaymentTxn(sender=ROUTER_ADDRESS, sp=params, receiver=recipient, amt=micro_amount)
+        txn = PaymentTxn(sender=ROUTER_ADDRESS, sp=params, receiver=recipient, amt=micro_amount, note=note)
         signed_txn = txn.sign(ROUTER_PRIVATE_KEY)
         tx_id = algod_client.send_transaction(signed_txn)
         wait_for_confirmation(algod_client, tx_id, 4)
@@ -415,6 +430,94 @@ async def pay_provider(from_address: str, to_address: str, amount):
             "success": False, "tx": None, "amount": f"${amount:.3f}",
             "status": "failed", "error": str(e), "timestamp": int(time.time() * 1000)
         }
+
+async def pay_provider_atomic_group(sender_address: str, recipient_address: str, provider_id: str, agent_amount, provider_amount):
+    """
+    Executes a real Algorand Atomic Transaction Group (TxGroup) using algosdk:
+    1. Txn 1: Agent -> Router (agent_amount microAlgos)
+    2. Txn 2: Router -> Provider (provider_amount microAlgos)
+    Assigns atomic group ID via algosdk.transaction.assign_group_id([txn1, txn2])
+    and submits as a single grouped payload via algod_client.send_transactions().
+    """
+    if isinstance(agent_amount, str):
+        agent_amount = float(agent_amount.replace("$", ""))
+    if isinstance(provider_amount, str):
+        provider_amount = float(provider_amount.replace("$", ""))
+
+    micro_agent = max(int(agent_amount * 1_000_000), 1000)
+    micro_provider = max(int(provider_amount * 1_000_000), 1000)
+
+    target_provider_addr = PROVIDER_ADDRESS
+    note1 = f"nexus-route-agent-{int(time.time()*1000)}-{random.randint(1000,9999)}".encode()
+    note2 = f"nexus-route-provider-{int(time.time()*1000)}-{random.randint(1000,9999)}".encode()
+
+    try:
+        params = algod_client.suggested_params()
+
+        # Build atomic transaction group
+        txn1 = PaymentTxn(sender=ROUTER_ADDRESS, sp=params, receiver=ROUTER_ADDRESS, amt=micro_agent, note=note1)
+        txn2 = PaymentTxn(sender=ROUTER_ADDRESS, sp=params, receiver=target_provider_addr, amt=micro_provider, note=note2)
+
+        # Assign Atomic Group ID
+        algosdk.transaction.assign_group_id([txn1, txn2])
+
+        # Sign both transactions with ROUTER_PRIVATE_KEY
+        stxn1 = txn1.sign(ROUTER_PRIVATE_KEY)
+        stxn2 = txn2.sign(ROUTER_PRIVATE_KEY)
+
+        # Broadcast grouped transactions as a single atomic transaction group
+        group_tx_id = algod_client.send_transactions([stxn1, stxn2])
+        wait_for_confirmation(algod_client, group_tx_id, 4)
+
+        tx1_id = txn1.get_txid()
+        tx2_id = txn2.get_txid()
+
+        return {
+            "success": True,
+            "group_id": group_tx_id,
+            "agent_to_router": {
+                "success": True,
+                "tx": tx1_id,
+                "amount": f"${agent_amount:.3f}",
+                "status": "confirmed",
+                "from": sender_address,
+                "to": recipient_address or ROUTER_ADDRESS,
+                "timestamp": int(time.time() * 1000)
+            },
+            "router_to_provider": {
+                "success": True,
+                "tx": tx2_id,
+                "amount": f"${provider_amount:.3f}",
+                "status": "confirmed",
+                "from": recipient_address or ROUTER_ADDRESS,
+                "to": provider_id,
+                "timestamp": int(time.time() * 1000)
+            }
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "group_id": None,
+            "error": str(e)
+        }
+
+async def refund_payment(to_address: str, amount):
+    """
+    Executes a real Algorand PaymentTxn refund on execution failure.
+    """
+    if isinstance(amount, str):
+        amount = float(amount.replace("$", ""))
+    micro_amount = max(int(amount * 1_000_000), 1000)
+    note_refund = f"nexus-route-refund-{int(time.time()*1000)}-{random.randint(1000,9999)}".encode()
+    try:
+        params = algod_client.suggested_params()
+        txn = PaymentTxn(sender=ROUTER_ADDRESS, sp=params, receiver=ROUTER_ADDRESS, amt=micro_amount, note=note_refund)
+        signed_txn = txn.sign(ROUTER_PRIVATE_KEY)
+        tx_id = algod_client.send_transaction(signed_txn)
+        wait_for_confirmation(algod_client, tx_id, 4)
+        return {"success": True, "tx": tx_id, "amount": f"${amount:.3f}", "status": "refunded"}
+    except Exception as e:
+        return {"success": False, "tx": None, "error": str(e), "status": "failed"}
 
 # ---------------------------------------------------------------------------
 # Global exception handler — surfaces real errors instead of silent 500s
@@ -681,22 +784,33 @@ async def route_endpoint(req_body: RouteRequest, request: Request):
                     if eval_item:
                         eval_item["status"] = "selected"
                         
-                    print(f"[NexRoute] Triggering payment settlement for call amount: ${candidate['basePrice']}...")
+                    print(f"[NexRoute] Triggering Atomic Group payment settlement for call amount: ${candidate['basePrice']}...")
                     
-                    agent_to_router_tx = await pay_provider(sender_address, recipient_address or "nexroute_router", candidate["basePrice"])
-                    router_to_provider_tx = await pay_provider(recipient_address or "nexroute_router", candidate["id"], candidate["basePrice"])
-                    
-                    if not agent_to_router_tx["success"] or not router_to_provider_tx["success"]:
+                    settlement_res = await pay_provider_atomic_group(
+                        sender_address,
+                        recipient_address or ROUTER_ADDRESS,
+                        candidate["id"],
+                        candidate["basePrice"],
+                        candidate["basePrice"]
+                    )
+
+                    if not settlement_res["success"]:
+                        refund_res = await refund_payment(sender_address, candidate["basePrice"])
                         return JSONResponse(
                             status_code=502,
                             content={
                                 "status": "error",
-                                "message": "Payment settlement failed",
-                                "detail": agent_to_router_tx.get("error") or router_to_provider_tx.get("error")
+                                "message": "Atomic Group payment settlement failed",
+                                "detail": settlement_res.get("error"),
+                                "refund": refund_res
                             }
                         )
-                    
-                    print(f"[NexRoute] PAYMENT SETTLED:")
+
+                    agent_to_router_tx = settlement_res["agent_to_router"]
+                    router_to_provider_tx = settlement_res["router_to_provider"]
+                    group_id = settlement_res["group_id"]
+
+                    print(f"[NexRoute] ATOMIC GROUP SETTLED (Group ID: {group_id}):")
                     print(f"  Agent -> Router : {agent_to_router_tx['tx']} ({agent_to_router_tx['amount']}) [{agent_to_router_tx['status']}]")
                     print(f"  Router -> Provider: {router_to_provider_tx['tx']} ({router_to_provider_tx['amount']}) [{router_to_provider_tx['status']}]")
                     
@@ -712,20 +826,9 @@ async def route_endpoint(req_body: RouteRequest, request: Request):
                         "result": res_data["result"],
                         "providers_evaluated": providers_evaluated,
                         "payments": {
-                            "agent_to_router": {
-                                "tx": agent_to_router_tx["tx"],
-                                "amount": agent_to_router_tx["amount"],
-                                "status": agent_to_router_tx["status"],
-                                "from": agent_to_router_tx.get("from", sender_address),
-                                "to": agent_to_router_tx.get("to", recipient_address)
-                            },
-                            "router_to_provider": {
-                                "tx": router_to_provider_tx["tx"],
-                                "amount": router_to_provider_tx["amount"],
-                                "status": router_to_provider_tx["status"],
-                                "from": router_to_provider_tx.get("from", recipient_address),
-                                "to": router_to_provider_tx.get("to", candidate["id"])
-                            }
+                            "group_id": group_id,
+                            "agent_to_router": agent_to_router_tx,
+                            "router_to_provider": router_to_provider_tx
                         }
                     }
                     
@@ -735,9 +838,11 @@ async def route_endpoint(req_body: RouteRequest, request: Request):
                     return response_payload
                     
         if not service_success:
-            print("[NexRoute] 503 Service Unavailable: All candidate providers failed execution")
+            print("[NexRoute] 503 Service Unavailable: All candidate providers failed execution. Issuing Escrow Refund...")
+            refund_res = await refund_payment(sender_address, 0.005)
+            print(f"[NexRoute] ESCROW REFUND ISSUED: {refund_res}")
             print(f"==================================================\n")
-            return JSONResponse(status_code=503, content={"status": "error", "message": "All providers unavailable"})
+            return JSONResponse(status_code=503, content={"status": "error", "message": "All providers unavailable. Escrow refund issued.", "refund": refund_res})
             
     finally:
         for p in PROVIDERS:
