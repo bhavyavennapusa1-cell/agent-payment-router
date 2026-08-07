@@ -62,3 +62,8 @@ Set the following environment variables in Render dashboard or `.env`:
 * `FACILITATOR_URL` — x402 facilitator URL (e.g. `https://facilitator.goplausible.xyz`).
 * `ALGOD_SERVER` — Algorand node endpoint (defaults to `https://testnet-api.algonode.cloud`).
 * `DEV_MODE` — Optional boolean (`false` by default). Set to `true` only for offline developer mock testing.
+
+* ## Team
+* Backend: Sivani Vadrevu
+* Blockchain & Algorand: Bhavya Vennapusa
+* Frontend: Suhani Patel
